@@ -10,10 +10,15 @@ def getLR(epoch):
         LR=2.5e-5
       return (max(LR,1e-5))
 
+class HParams2(dict):
+    def __init__(self, *args, **kwargs):
+        super(HParamsAlternative, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+
 def create_hparams(hparams_string=None, verbose=False):
     """Create model hyperparameters. Parse nondefault from given string."""
 
-    hparams = tf.contrib.training.HParams(
+    hparams = HParams2(
         ################################
         # Experiment Parameters        #
         ################################

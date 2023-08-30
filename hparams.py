@@ -82,7 +82,7 @@ def create_hparams(hparams_string=None, verbose=False):
         # Optimization Hyperparameters #
         ################################
         use_saved_learning_rate=False,
-        learning_rate=getLR(epoch),
+        learning_rate=0.00017,
         weight_decay=1e-6,
         grad_clip_thresh=1.0,
         batch_size=30,

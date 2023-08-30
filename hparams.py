@@ -3,7 +3,7 @@ from text import symbols
 
 class HParams2(dict):
     def __init__(self, *args, **kwargs):
-        super(HParamsAlternative, self).__init__(*args, **kwargs)
+        super(HParams2, self).__init__(*args, **kwargs)
         self.__dict__ = self
 
 def create_hparams(hparams_string=None, verbose=False):

@@ -1,6 +1,14 @@
 import tensorflow as tf
 from text import symbols
 
+def getLR(epoch):
+      if epoch<=50:
+        LR=1.7e-4
+      elif epoch>50 and epoch<=100:
+        LR=5e-5
+      else:
+        LR=2.5e-5
+      return (max(LR,1e-5))
 
 def create_hparams(hparams_string=None, verbose=False):
     """Create model hyperparameters. Parse nondefault from given string."""
@@ -9,7 +17,7 @@ def create_hparams(hparams_string=None, verbose=False):
         ################################
         # Experiment Parameters        #
         ################################
-        epochs=500,
+        epochs=200,
         iters_per_checkpoint=1000,
         seed=1234,
         dynamic_loss_scaling=True,
@@ -24,9 +32,9 @@ def create_hparams(hparams_string=None, verbose=False):
         ################################
         # Data Parameters             #
         ################################
-        load_mel_from_disk=False,
-        training_files='filelists/ljs_audio_text_train_filelist.txt',
-        validation_files='filelists/ljs_audio_text_val_filelist.txt',
+        load_mel_from_disk=True,
+        training_files='filelists/train_files.txt',
+        validation_files='filelists/val_files.txt',
         text_cleaners=['english_cleaners'],
 
         ################################
@@ -78,10 +86,10 @@ def create_hparams(hparams_string=None, verbose=False):
         # Optimization Hyperparameters #
         ################################
         use_saved_learning_rate=False,
-        learning_rate=1e-3,
+        learning_rate=getLR(epoch),
         weight_decay=1e-6,
         grad_clip_thresh=1.0,
-        batch_size=64,
+        batch_size=30,
         mask_padding=True  # set model's padded outputs to padded values
     )
 

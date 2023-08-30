@@ -1,8 +1,11 @@
+#edited version of train.py code
 import os
 import time
 import argparse
 import math
 from numpy import finfo
+import random
+import matplotlib.pyplot as plt
 
 import torch
 from distributed import apply_gradient_allreduce
@@ -119,7 +122,7 @@ def save_checkpoint(model, optimizer, learning_rate, iteration, filepath):
 
 
 def validate(model, criterion, valset, iteration, batch_size, n_gpus,
-             collate_fn, logger, distributed_run, rank):
+             collate_fn, logger, distributed_run, rank, epoch, start_eposh, learning_rate,train_loss):
     """Handles all the validation scoring and printing"""
     model.eval()
     with torch.no_grad():
@@ -142,12 +145,45 @@ def validate(model, criterion, valset, iteration, batch_size, n_gpus,
 
     model.train()
     if rank == 0:
-        print("Validation loss {}: {:9f}  ".format(iteration, val_loss))
-        logger.log_validation(val_loss, model, y, y_pred, iteration)
+      print("Epoch: {} Validation loss {}: {:9f}  Time: {:.1f}m LR: {:.6f}".format(epoch, iteration, val_loss,(time.perf_counter()-start_eposh)/60, learning_rate))
+      logger.log_validation(val_loss, model, y, y_pred, iteration)
+
+
+
+      %matplotlib inline
+      _, mel_outputs, gate_outputs, alignments = y_pred
+      idx = random.randint(0, alignments.size(0) - 1)
+      alignment=(alignments[idx].data.cpu().numpy().T)
+      fig, ax = plt.subplots(figsize=(5, 3))
+      im = ax.imshow(alignment, cmap='inferno', aspect='auto', origin='lower',interpolation='none')
+      plt.tight_layout()
+      fig.canvas.draw()
+      plt.show()
+
+      #save to outputs to another folder
+      import csv
+      csv_file_path = os.path.join(output_directory,'val_loss.csv')
+      loss_entry = [epoch, val_loss,train_loss,iteration,(time.perf_counter()-start_eposh)/60,learning_rate]
+      with open(csv_file_path, 'a', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        if os.path.getsize(csv_file_path) == 0:
+          csv_writer.writerow(["Epoch", "Validation Loss", "Training Loss","Iteration", "Time","Learning Rate"])
+        csv_writer.writerow(loss_entry)
+        csv_file.flush()
+
+      alignments_dir = os.path.join(output_directory, 'alignments')
+      os.makedirs(alignments_dir, exist_ok=True)
+      file_name = f'alignment_epoch_{epoch}.png'
+      image_path = os.path.join(alignments_dir, file_name)
+      fig.savefig(image_path)
+
+
+        #print("Validation loss {}: {:9f}  ".format(iteration, val_loss))    original code
+        #logger.log_validation(val_loss, model, y, y_pred, iteration)
 
 
 def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
-          rank, group_name, hparams):
+          rank, group_name, hparams, save_interval):
     """Training and validation logging results to tensorboard and stdout
 
     Params
@@ -188,25 +224,36 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
     # Load checkpoint if one exists
     iteration = 0
     epoch_offset = 0
-    if checkpoint_path is not None:
-        if warm_start:
-            model = warm_start_model(
-                checkpoint_path, model, hparams.ignore_layers)
-        else:
+    if checkpoint_path is not None and os.path.isfile(checkpoint_path):
+
             model, optimizer, _learning_rate, iteration = load_checkpoint(
                 checkpoint_path, model, optimizer)
             if hparams.use_saved_learning_rate:
                 learning_rate = _learning_rate
             iteration += 1  # next iteration is iteration + 1
             epoch_offset = max(0, int(iteration / len(train_loader)))
+    else:
+      if warm_start:
+        model = warm_start_model("/content/tacotron2/pretrained_model", model, hparams.ignore_layers)
 
+    start_eposh = time.perf_counter()
     model.train()
     is_overflow = False
+
+    if not os.path.isdir(output_directory):
+            os.makedirs(output_directory)
+    if not os.path.isdir(log_directory):
+            os.makedirs(log_directory)
+
+
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
+        train_loss = 0.0
         print("Epoch: {}".format(epoch))
+
         for i, batch in enumerate(train_loader):
             start = time.perf_counter()
+            learning_rate=getLR(epoch)
             for param_group in optimizer.param_groups:
                 param_group['lr'] = learning_rate
 
@@ -237,54 +284,24 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
 
             if not is_overflow and rank == 0:
                 duration = time.perf_counter() - start
-                print("Train loss {} {:.6f} Grad Norm {:.6f} {:.2f}s/it".format(
-                    iteration, reduced_loss, grad_norm, duration))
                 logger.log_training(
                     reduced_loss, grad_norm, learning_rate, duration, iteration)
+                print("Batch {} loss {:.6f} Grad Norm {:.6f} Time {:.6f}".format(iteration, reduced_loss, grad_norm, duration), end='\r', flush=True)
 
-            if not is_overflow and (iteration % hparams.iters_per_checkpoint == 0):
-                validate(model, criterion, valset, iteration,
-                         hparams.batch_size, n_gpus, collate_fn, logger,
-                         hparams.distributed_run, rank)
-                if rank == 0:
-                    checkpoint_path = os.path.join(
-                        output_directory, "checkpoint_{}".format(iteration))
-                    save_checkpoint(model, optimizer, learning_rate, iteration,
-                                    checkpoint_path)
+            train_loss += reduced_loss
 
             iteration += 1
 
+        train_loss = train_loss/(i+1)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--output_directory', type=str,
-                        help='directory to save checkpoints')
-    parser.add_argument('-l', '--log_directory', type=str,
-                        help='directory to save tensorboard logs')
-    parser.add_argument('-c', '--checkpoint_path', type=str, default=None,
-                        required=False, help='checkpoint path')
-    parser.add_argument('--warm_start', action='store_true',
-                        help='load model weights only, ignore specified layers')
-    parser.add_argument('--n_gpus', type=int, default=1,
-                        required=False, help='number of gpus')
-    parser.add_argument('--rank', type=int, default=0,
-                        required=False, help='rank of current gpu')
-    parser.add_argument('--group_name', type=str, default='group_name',
-                        required=False, help='Distributed group name')
-    parser.add_argument('--hparams', type=str,
-                        required=False, help='comma separated name=value pairs')
+        validate(model, criterion, valset, iteration,
+                 hparams.batch_size, n_gpus, collate_fn, logger,
+                 hparams.distributed_run, rank, epoch, start_eposh, learning_rate,train_loss)
 
-    args = parser.parse_args()
-    hparams = create_hparams(args.hparams)
 
-    torch.backends.cudnn.enabled = hparams.cudnn_enabled
-    torch.backends.cudnn.benchmark = hparams.cudnn_benchmark
+        if (epoch+1) % save_interval == 0 or (epoch+1) == hparams.epochs:
+            save_checkpoint(model, optimizer, learning_rate, iteration, checkpoint_path + 'epoch' + str(epoch+1))
 
-    print("FP16 Run:", hparams.fp16_run)
-    print("Dynamic Loss Scaling:", hparams.dynamic_loss_scaling)
-    print("Distributed Run:", hparams.distributed_run)
-    print("cuDNN Enabled:", hparams.cudnn_enabled)
-    print("cuDNN Benchmark:", hparams.cudnn_benchmark)
-
-    train(args.output_directory, args.log_directory, args.checkpoint_path,
-          args.warm_start, args.n_gpus, args.rank, args.group_name, hparams)
+hparams = create_hparams()
+torch.backends.cudnn.enabled = hparams.cudnn_enabled
+torch.backends.cudnn.benchmark = hparams.cudnn_benchmark

@@ -132,7 +132,9 @@ def validate(model, criterion, valset, iteration, batch_size, n_gpus,
                                 pin_memory=False, collate_fn=collate_fn)
 
         val_loss = 0.0
+        counti=0
         for i, batch in enumerate(val_loader):
+            counti+=1
             x, y = model.parse_batch(batch)
             y_pred = model(x)
             loss = criterion(y_pred, y)
@@ -141,7 +143,7 @@ def validate(model, criterion, valset, iteration, batch_size, n_gpus,
             else:
                 reduced_val_loss = loss.item()
             val_loss += reduced_val_loss
-        val_loss = val_loss / (i + 1)
+        val_loss = val_loss / (counti)
 
     model.train()
     if rank == 0:
@@ -248,10 +250,12 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
 
     # ================ MAIN TRAINNIG LOOP! ===================
     for epoch in range(epoch_offset, hparams.epochs):
-        train_loss = 0.0
+        train_loss = 0
+        icount=0
         print("Epoch: {}".format(epoch))
-
         for i, batch in enumerate(train_loader):
+            icount+=1
+            print(icount)
             start = time.perf_counter()
             learning_rate=getLR(epoch)
             for param_group in optimizer.param_groups:
@@ -292,7 +296,7 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
 
             iteration += 1
 
-        train_loss = train_loss/(i+1)
+        train_loss = train_loss/(icount)
 
         validate(model, criterion, valset, iteration,
                  hparams.batch_size, n_gpus, collate_fn, logger,

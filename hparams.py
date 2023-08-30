@@ -1,15 +1,6 @@
 import tensorflow as tf
 from text import symbols
 
-def getLR(epoch):
-      if epoch<=50:
-        LR=1.7e-4
-      elif epoch>50 and epoch<=100:
-        LR=5e-5
-      else:
-        LR=2.5e-5
-      return (max(LR,1e-5))
-
 class HParams2(dict):
     def __init__(self, *args, **kwargs):
         super(HParamsAlternative, self).__init__(*args, **kwargs)

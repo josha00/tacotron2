@@ -255,7 +255,6 @@ def train(output_directory, log_directory, checkpoint_path, warm_start, n_gpus,
         print("Epoch: {}".format(epoch))
         for i, batch in enumerate(train_loader):
             icount+=1
-            print(icount)
             start = time.perf_counter()
             learning_rate=getLR(epoch)
             for param_group in optimizer.param_groups:
